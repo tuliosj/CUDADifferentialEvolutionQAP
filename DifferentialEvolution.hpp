@@ -80,6 +80,17 @@ struct data {
     int dim;
 };
 
+const int BUFFER_LENGTH = 255;
+
+struct instance
+{
+    int n;
+	int *distance;
+	int *flow;
+	int *best_individual;
+	int best_result;
+};
+
 class DifferentialEvolution {
 private:
     float *d_target1;
