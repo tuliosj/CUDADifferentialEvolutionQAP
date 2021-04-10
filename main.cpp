@@ -49,7 +49,8 @@ instance *open_instance(const char *instance_name) {
     };
 
     // Instance
-    instance *inst = (instance*)malloc(sizeof(instance));
+    instance *inst;
+    cudaMallocManaged(&inst, sizeof(instance));
 
     // Find instance's size
     char buffer[BUFFER_LENGTH];
@@ -57,9 +58,12 @@ instance *open_instance(const char *instance_name) {
     inst->n = atoi(strtok(buffer, "\n"));
 
     // // Memory allocation
-	inst->distance = (int*)malloc(sizeof(int)*inst->n*inst->n);
-	inst->flow = (int*)malloc(sizeof(int)*inst->n*inst->n);
-    inst->best_individual  = (int*)malloc(sizeof(int)*inst->n);
+	inst->distance;
+    cudaMallocManaged(&inst->distance, sizeof(int)*inst->n*inst->n);
+	inst->flow;
+    cudaMallocManaged(&inst->flow, sizeof(int)*inst->n*inst->n);
+    inst->best_individual;
+    cudaMallocManaged(&inst->best_individual, sizeof(int)*inst->n);
 
     // // Read the distance matrix
 	char *token;
@@ -106,32 +110,26 @@ instance *open_instance(const char *instance_name) {
 
 int main(void)
 {
-    std::cout << open_instance("chr12a")->best_result << std::endl;
+    // data that is created in host, then copied to a device version for use with the cost function.
+    const struct instance *inst = open_instance("chr12a");
+
+
 
     // create the min and max bounds for the search space.
-    float minBounds[2] = {-50, -50};
-    float maxBounds[2] = {100, 200};
-    
-    // a random array or data that gets passed to the cost function.
-    float arr[3] = {2.5, 2.6, 2.7};
-    
-    // data that is created in host, then copied to a device version for use with the cost function.
-    struct data x;
-    struct data *d_x;
-    gpuErrorCheck(cudaMalloc(&x.arr, sizeof(float) * 3));
-    unsigned long size = sizeof(struct data);
-    gpuErrorCheck(cudaMalloc((void **)&d_x, size));
-    x.v = 3;
-    x.dim = 2;
-    gpuErrorCheck(cudaMemcpy(x.arr, (void *)&arr, sizeof(float) * 3, cudaMemcpyHostToDevice));
+    int i;
+    float minBounds[inst->n];
+    float maxBounds[inst->n];
+    for(i=0;i<inst->n;i++) {
+        minBounds[i] = -3.0;
+        maxBounds[i] = 3.0;
+    }
     
     // Create the minimizer with a popsize of 192, 50 generations, Dimensions = 2, CR = 0.9, F = 2
-    DifferentialEvolution minimizer(192,50, 2, 0.9, 0.5, minBounds, maxBounds);
+    DifferentialEvolution minimizer(32, 50, inst->n, 0.9, 0.5, minBounds, maxBounds);
     
-    gpuErrorCheck(cudaMemcpy(d_x, (void *)&x, sizeof(struct data), cudaMemcpyHostToDevice));
     
     // get the result from the minimizer
-    std::vector<float> result = minimizer.fmin(d_x);
+    std::vector<float> result = minimizer.fmin(inst);
     std::cout << "Result = " << result[0] << ", " << result[1] << std::endl;
     std::cout << "Finished main function." << std::endl;
     return 1;

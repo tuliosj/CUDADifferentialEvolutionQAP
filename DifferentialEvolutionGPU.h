@@ -39,10 +39,10 @@
 //
 // HOW TO USE:
 // To implement a new cost function write the cost function in DifferentialEvolutionGPU.cu with the header
-// __device float fooCost(const float *vec, const void *args)
+// __device float fooCost(const float *vec, const void *inst)
 // @param vec - sample parameters for the cost function to give a score on.
-// @param args - any set of arguements that can be passed at the minimization stage
-// NOTE: args any memory given to the function must already be in device memory.
+// @param inst - any set of arguements that can be passed at the minimization stage
+// NOTE: inst any memory given to the function must already be in device memory.
 //
 // Go to the header and add a specifier for your cost functiona and change the COST_SELECTOR
 // to that specifier. (please increment from previous number)
@@ -52,7 +52,7 @@
 //
 // ...
 // #elif COST_SELECTOR == YOUR_COST_FUNCTION_SPECIFIER
-//      return yourCostFunctionName(vec, args);
+//      return yourCostFunctionName(vec, inst);
 // ...
 //
 
@@ -63,12 +63,13 @@
 #define __DIFFERENTIAL_EVOLUTION_GPU__
 
 #define QUADRATIC_COST 0
-#define COST_WITH_ARGS 1
+#define COST_WITH_inst 1
 #define MANY_LOCAL_MINMA 2
 #define COST_3D 3
+#define COST_QAP 4
 
 
-#define COST_SELECTOR COST_WITH_ARGS
+#define COST_SELECTOR COST_QAP
 
 // A basic macro used to checking cuda errors.
 // @param ans - the most recent enumerated cuda error to check.
@@ -89,7 +90,7 @@ void gpuAssert(cudaError_t code, const char *file, int line);
 // @param maxGenerations - the max number of generations DE will perform (see DE paper for more info)
 // @param CR - Crossover Constant used by DE (see DE paper for more info)
 // @param F - the scaling factor used by DE (see DE paper for more info)
-// @param costArgs - this a set of any arguments needed to be passed to the cost function. (must be in device memory already)
+// @param inst - this a set of any arguments needed to be passed to the cost function. (must be in device memory already)
 // @param h_output - the host output vector of function
 void differentialEvolution(float *d_target,
                            float *d_trial,
@@ -104,7 +105,7 @@ void differentialEvolution(float *d_target,
                            int maxGenerations,
                            int CR, // Must be given as value between [0,999]
                            float F,
-                           void *costArgs,
+                           const struct instance *inst,
                            float *h_output);
 
 // createRandNumGen

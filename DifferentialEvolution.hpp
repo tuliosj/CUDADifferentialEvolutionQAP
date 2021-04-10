@@ -65,6 +65,8 @@
 #ifndef DifferentialEvolution_hpp
 #define DifferentialEvolution_hpp
 
+#define BUFFER_LENGTH 255
+
 #include <stdio.h>
 #include <vector>
 #include <cuda_runtime.h>
@@ -80,7 +82,6 @@ struct data {
     int dim;
 };
 
-const int BUFFER_LENGTH = 255;
 
 struct instance
 {
@@ -131,11 +132,11 @@ public:
     
     // fmin
     // wrapper to the cuda function C function for differential evolution.
-    // @param args - this a pointer to arguments for the cost function.
+    // @param inst - this a pointer to arguments for the cost function.
     //      This MUST point to device memory or NULL.
     //
     // @return the best set of parameters
-    std::vector<float> fmin(void *args);
+    std::vector<float> fmin(const struct instance *inst);
     
 };
 

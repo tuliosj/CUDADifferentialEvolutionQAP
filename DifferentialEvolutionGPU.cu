@@ -39,10 +39,10 @@
 //
 // HOW TO USE:
 // To implement a new cost function write the cost function in DifferentialEvolutionGPU.cu with the header
-// __device float fooCost(const float *vec, const void *args)
+// __device float fooCost(const float *vec, const void *inst)
 // @param vec - sample parameters for the cost function to give a score on.
-// @param args - any set of arguements that can be passed at the minimization stage
-// NOTE: args any memory given to the function must already be in device memory.
+// @param inst - any set of arguements that can be passed at the minimization stage
+// NOTE: inst any memory given to the function must already be in device memory.
 //
 // Go to the header and add a specifier for your cost functiona and change the COST_SELECTOR
 // to that specifier. (please increment from previous number)
@@ -52,7 +52,7 @@
 //
 // ...
 // #elif COST_SELECTOR == YOUR_COST_FUNCTION_SPECIFIER
-//      return yourCostFunctionName(vec, args);
+//      return yourCostFunctionName(vec, inst);
 // ...
 //
 
@@ -96,65 +96,33 @@ inline void gpuAssert(cudaError_t code, const char *file, int line)
 // So instead use this super ugly method for changing the cost function.
 //
 // @param vec - the vector to be evaulated.
-// @param args - a set of user arguments.
-__device__ float quadraticFunc(const float *vec, const void *args)
-{
-    float x = vec[0]-3;
-    
-    float y = vec[1];
-    return (x*x) + (y*y);
-}
+// @param inst - a set of user arguments.
 
-__device__ float costWithArgs(const float *vec, const void *args)
-{
-    const struct data *a = (struct data *)args;
-    
-    float x = vec[0];
-    float y = vec[1];
-    
-    return x*x + y*y + 9 - (6*x) + a->arr[1] + a->v;
-}
-
-__device__ float costFunctionWithManyLocalMinima(const float *vec, const void *args)
-{
-    float x = vec[0];
-    float y = vec[1];
-    return -(cos(x) + cos(y)) + 0.2*(x*x) + 0.2*(y*y);
-}
-
-__device__ float cost3D(const float *vec, const void *args)
-{
-    float x = vec[0] - 3;
-    float y = vec[1] - 1;
-    float z = vec[2] + 3;
-    return (x*x*x*x)- (2*x*x*x) + (z*z*z*z) + (y*y*y);
-}
-
-
-__device__ int *relativePositionIndexing(float *vec, int n) {
-    int i, j, k=n, maxvalue;
+__device__ int *relativePositionIndexing(const float *vec, int n) {
+    int i, j, biggerThanMe;
 
     int *vecRPI = (int*)malloc(sizeof(int)*n);
 
-    float *aux;
-    memcpy(&aux, vec, sizeof(float) * n);
-
+    float *aux = (float*)malloc(sizeof(float)*n);
     for(i=0;i<n;i++) {
-        maxvalue = 0;
-        for(j=1;j<n;j++)
-            if(aux[j]>aux[maxvalue])
-                maxvalue = j;
-        vecRPI[maxvalue]=k--;
-        aux[maxvalue] = -1.0;
+        aux[i] = vec[i];
     }
-
+    
+    for(i=0;i<n;i++) {
+        biggerThanMe = n;
+        for(j=0;j<n;j++) {
+            if(i!=j&&aux[j]>aux[i]) {
+                biggerThanMe--;
+            }
+        }
+        vecRPI[i]=biggerThanMe;
+    }
+    
     return vecRPI;
 }
 
-__device__ int costFunction(float *vec, const void *args) {
+__device__ int costFunc(const float *vec, const struct instance *inst) {
     int i, j, sum=0;
-
-    const struct instance *inst = (struct instance*) args;
 
     int *vecRPI = relativePositionIndexing(vec, inst->n);
 
@@ -168,57 +136,31 @@ __device__ int costFunction(float *vec, const void *args) {
 }
 
 
-// costFunc
-// This is a selector of the functions.
-// Although this code is great for usabilty, by using the preprocessor directives
-// for selecting the cost function to use this gives no loss in performance
-// wheras a switch statement or function pointer would require extra instructions.
-// also function pointers in CUDA are complex to work with, and particulary with the
-// architecture used where a standard C++ class is used to wrap the CUDA kernels and
-// handle most of the memory mangement used.
-__device__ float costFunc(const float *vec, const void *args) {
-#if COST_SELECTOR == QUADRATIC_COST
-    return quadraticFunc(vec, args);
-#elif COST_SELECTOR == COST_WITH_ARGS
-    return costWithArgs(vec, args);
-#elif COST_SELECTOR == MANY_LOCAL_MINMA
-    return costFunctionWithManyLocalMinima(vec, args);
-#else
-#error Bad cost_selector given to costFunc in DifferentialEvolution function: costFunc
-#endif
-}
 
 
-
-
-
-
-
-
-
-
-
-
-void printCudaVector(float *d_vec, int size)
+void printCudaVector(const float *d_vec, int size)
 {
+    std::cout << "\nsize: " << size << std::endl;
     float *h_vec = new float[size];
     gpuErrorCheck(cudaMemcpy(h_vec, d_vec, sizeof(float) * size, cudaMemcpyDeviceToHost));
-
+    
+    int i;
     std::cout << "{";
-    for (int i = 0; i < size; i++) {
+    for (i = 0; i < size-1; i++) {
         std::cout << h_vec[i] << ", ";
     }
-    std::cout << "}" << std::endl;
+    std::cout << h_vec[i] << "}" << std::endl;
     
     delete[] h_vec;
 }
 
 __global__ void generateRandomVectorAndInit(float *d_x, float *d_min, float *d_max,
-            float *d_cost, void *costArgs, curandState_t *randStates,
+            float *d_cost, const struct instance *inst, curandState_t *randStates,
             int popSize, int dim, unsigned long seed)
 {
     int idx = (blockIdx.x * blockDim.x) + threadIdx.x;
     if (idx >= popSize) return;
+    // if (idx >= 1) return;
     
     curandState_t *state = &randStates[idx];
     curand_init(seed, idx,0,state);
@@ -226,7 +168,7 @@ __global__ void generateRandomVectorAndInit(float *d_x, float *d_min, float *d_m
         d_x[(idx*dim) + i] = (curand_uniform(state) * (d_max[i] - d_min[i])) + d_min[i];
     }
 
-    d_cost[idx] = costFunc(&d_x[idx*dim], costArgs);
+    d_cost[idx] = costFunc(&d_x[idx*dim], inst);
 }
 
 
@@ -242,7 +184,7 @@ __global__ void generateRandomVectorAndInit(float *d_x, float *d_min, float *d_m
 // @param popSize - this the population size for DE, or otherwise the number of agents that DE will use. (see DE paper for more info)
 // @param CR - Crossover Constant used by DE (see DE paper for more info)
 // @param F - the scaling factor used by DE (see DE paper for more info)
-// @param costArgs - this a set of any arguments needed to be passed to the cost function. (must be in device memory already)
+// @param inst - this a set of any arguments needed to be passed to the cost function. (must be in device memory already)
 __global__ void evolutionKernel(float *d_target,
                                 float *d_trial,
                                 float *d_cost,
@@ -254,7 +196,7 @@ __global__ void evolutionKernel(float *d_target,
                                 int popSize,
                                 int CR, // Must be given as value between [0,999]
                                 float F,
-                                void *costArgs)
+                                const struct instance *inst)
 {
     int idx = (blockIdx.x * blockDim.x) + threadIdx.x;
     if (idx >= popSize) return; // stop executing this block if
@@ -284,7 +226,7 @@ __global__ void evolutionKernel(float *d_target,
         j = (j+1) % dim;
     } // end for loop through parameters
     
-    float score = costFunc(&d_trial[idx*dim], costArgs);
+    float score = costFunc(&d_trial[idx*dim], inst);
     if (score < d_cost[idx]) {
         // copy trial into new vector
         for (j = 0; j < dim; j++) {
@@ -317,7 +259,7 @@ __global__ void evolutionKernel(float *d_target,
 // @param maxGenerations - the max number of generations DE will perform (see DE paper for more info)
 // @param CR - Crossover Constant used by DE (see DE paper for more info)
 // @param F - the scaling factor used by DE (see DE paper for more info)
-// @param costArgs - this a set of any arguments needed to be passed to the cost function. (must be in device memory already)
+// @param inst - this a set of any arguments needed to be passed to the cost function. (must be in device memory already)
 // @param h_output - the host output vector of function
 void differentialEvolution(float *d_target,
                            float *d_trial,
@@ -332,7 +274,7 @@ void differentialEvolution(float *d_target,
                            int maxGenerations,
                            int CR, // Must be given as value between [0,999]
                            float F,
-                           void *costArgs,
+                           const struct instance *inst,
                            float *h_output)
 {
     cudaError_t ret;
@@ -342,12 +284,22 @@ void differentialEvolution(float *d_target,
     // issue commands to 64 threads and you'd just be wasting them."
     // https://stackoverflow.com/questions/4391162/cuda-determining-threads-per-block-blocks-per-grid
     int power32 = ceil(popSize / 32.0) * 32;
-    //std::cout << "power32 = " << power32 << std::endl;
+    // std::cout << "power32 = " << power32 << std::endl;
     
-    //std::cout << "min bounds = ";
-    //printCudaVector(d_min, dim);
-    //std::cout << "max bounds = ";
-    //printCudaVector(d_max, dim);
+    
+    // int i, j;
+
+    // for(i=0;i<inst->n;i++) {
+    //     for(j=0;j<inst->n;j++) {
+    //         printf("%d ", inst->distance[i*inst->n+j]);
+    //     }
+    //     printf("\n");
+    // }
+
+    // std::cout << "min bounds = ";
+    // printCudaVector(d_min, dim);
+    // std::cout << "max bounds = ";
+    // printCudaVector(d_max, dim);
     
     //std::cout << "Random vector" << std::endl;
     //printCudaVector(d_target, popSize*dim);
@@ -355,15 +307,18 @@ void differentialEvolution(float *d_target,
     
     // generate random vector
     generateRandomVectorAndInit<<<1, power32>>>(d_target, d_min, d_max, d_cost,
-                    costArgs, (curandState_t *)randStates, popSize, dim, clock());
+                    inst, (curandState_t *)randStates, popSize, dim, clock());
     gpuErrorCheck(cudaPeekAtLastError());
     //udaMemcpy(d_target2, d_target, sizeof(float) * dim * popSize, cudaMemcpyDeviceToDevice);
     
-    //std::cout << "Generated random vector" << std::endl;
+    // ret = cudaDeviceSynchronize();
+    // gpuErrorCheck(ret);
+    // exit(0);
+    // std::cout << "Generated random vector" << std::endl;
     
-    //printCudaVector(d_target, popSize*dim);
-    //std::cout << "printing cost vector" << std::endl;
-    //printCudaVector(d_cost, popSize);
+    // printCudaVector(d_target, popSize*dim);
+    std::cout << "printing cost vector" << std::endl;
+    printCudaVector(d_cost, popSize);
     
     for (int i = 1; i <= maxGenerations; i++) {
         //std::cout << i << ": generation = \n";
@@ -374,7 +329,7 @@ void differentialEvolution(float *d_target,
         
         // start kernel for this generation
         evolutionKernel<<<1, power32>>>(d_target, d_trial, d_cost, d_target2, d_min, d_max,
-                (curandState_t *)randStates, dim, popSize, CR, F, costArgs);
+                (curandState_t *)randStates, dim, popSize, CR, F, inst);
         gpuErrorCheck(cudaPeekAtLastError());
         
         // swap buffers, places newest data into d_target.

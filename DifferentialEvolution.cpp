@@ -113,16 +113,16 @@ DifferentialEvolution::DifferentialEvolution(int PopulationSize, int NumGenerati
 
 // fmin
 // wrapper to the cuda function C function for differential evolution.
-// @param args - this a pointer to arguments for the cost function.
+// @param inst - this a pointer to arguments for the cost function.
 //      This MUST point to device memory or NULL.
 //
 // @return the best set of parameters
-std::vector<float> DifferentialEvolution::fmin(void *args)
+std::vector<float> DifferentialEvolution::fmin(const struct instance *inst)
 {
     std::vector<float> result(dim);
     
     differentialEvolution(d_target1, d_trial, d_cost, d_target2, d_min,
-            d_max, h_cost, d_randStates, dim, popSize, numGenerations, CR, F, args,
+            d_max, h_cost, d_randStates, dim, popSize, numGenerations, CR, F, inst,
             result.data());
     
     return result;
