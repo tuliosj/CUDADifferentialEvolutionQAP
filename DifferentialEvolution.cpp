@@ -59,7 +59,7 @@
 // gpuErrorCheck(cudaMemcpy(d_x, (void *)&x, sizeof(struct data), cudaMemcpyHostToDevice));
 //
 // // get the result from the minimizer
-// std::vector<float> result = minimizer.fmin(d_x);
+// int *result = minimizer.fmin(d_x);
 //
 
 #include "DifferentialEvolution.hpp"
@@ -117,13 +117,14 @@ DifferentialEvolution::DifferentialEvolution(int PopulationSize, int NumGenerati
 //      This MUST point to device memory or NULL.
 //
 // @return the best set of parameters
-std::vector<float> DifferentialEvolution::fmin(const struct instance *inst)
+float *DifferentialEvolution::fmin(const struct instance *inst)
 {
-    std::vector<float> result(dim);
+    float *result;
+    cudaMallocManaged(&result, sizeof(float)*dim);
     
     differentialEvolution(d_target1, d_trial, d_cost, d_target2, d_min,
             d_max, h_cost, d_randStates, dim, popSize, numGenerations, CR, F, inst,
-            result.data());
+            result);
     
     return result;
 }

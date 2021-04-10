@@ -136,7 +136,7 @@ public:
     //      This MUST point to device memory or NULL.
     //
     // @return the best set of parameters
-    std::vector<float> fmin(const struct instance *inst);
+    float *fmin(const struct instance *inst);
     
 };
 

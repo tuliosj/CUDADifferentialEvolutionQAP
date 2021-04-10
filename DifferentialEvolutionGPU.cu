@@ -201,6 +201,7 @@ __global__ void evolutionKernel(float *d_target,
     int idx = (blockIdx.x * blockDim.x) + threadIdx.x;
     if (idx >= popSize) return; // stop executing this block if
                                 // all populations have been used
+    // if (idx>=1) return;
     curandState_t *state = &randStates[idx];
     
     // TODO: Better way of generating unique random numbers?
@@ -229,8 +230,17 @@ __global__ void evolutionKernel(float *d_target,
     float score = costFunc(&d_trial[idx*dim], inst);
     if (score < d_cost[idx]) {
         // copy trial into new vector
+        float max_trial=d_trial[idx*dim],min_trial=d_trial[idx*dim];
+        for (j = 1; j < dim; j++) {
+            if(d_trial[idx*dim+j]>max_trial)
+                max_trial = d_trial[idx*dim+j];
+            if(d_trial[idx*dim+j]<min_trial)
+                min_trial = d_trial[idx*dim+j];
+        }
+        if(max_trial-min_trial==0.0)
+            max_trial+=0.01;
         for (j = 0; j < dim; j++) {
-            d_target2[(idx*dim) + j] = d_trial[(idx*dim) + j];
+            d_target2[(idx*dim) + j] = (d_max[j] - d_min[j])*(d_trial[(idx*dim) + j] -min_trial)/(max_trial-min_trial) + d_min[j];
             //printf("idx = %d, d_target2[%d] = %f, score = %f\n", idx, (idx*dim)+j, d_trial[(idx*dim) + j], score);
         }
         d_cost[idx] = score;
@@ -317,8 +327,8 @@ void differentialEvolution(float *d_target,
     // std::cout << "Generated random vector" << std::endl;
     
     // printCudaVector(d_target, popSize*dim);
-    std::cout << "printing cost vector" << std::endl;
-    printCudaVector(d_cost, popSize);
+    // std::cout << "printing cost vector" << std::endl;
+    // printCudaVector(d_cost, popSize);
     
     for (int i = 1; i <= maxGenerations; i++) {
         //std::cout << i << ": generation = \n";

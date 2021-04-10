@@ -108,6 +108,56 @@ instance *open_instance(const char *instance_name) {
 	return inst;
 }
 
+
+int *relativePositionIndexingCPU(const float *vec, int n) {
+    int i, j, biggerThanMe;
+
+    int *vecRPI = (int*)malloc(sizeof(int)*n);
+
+    float *aux = (float*)malloc(sizeof(float)*n);
+    for(i=0;i<n;i++) {
+        aux[i] = vec[i];
+    }
+    
+    for(i=0;i<n;i++) {
+        biggerThanMe = n;
+        for(j=0;j<n;j++) {
+            if(i!=j&&aux[j]>aux[i]) {
+                biggerThanMe--;
+            }
+        }
+        vecRPI[i]=biggerThanMe;
+    }
+    
+    return vecRPI;
+}
+
+int printResult(const float *vec, const struct instance *inst) {
+    int i, j, sum=0;
+
+    std::cout << "Result (before RPI) = ";
+    for(i=0;i<inst->n-1;i++)
+        std::cout << vec[i] << ", ";
+    std::cout << vec[i] << std::endl;
+
+    int *vecRPI = relativePositionIndexingCPU(vec, inst->n);
+
+    std::cout << "Result (after RPI) = ";
+    for(i=0;i<inst->n-1;i++)
+        std::cout << vecRPI[i] << ", ";
+    std::cout << vecRPI[i] << std::endl;
+
+    for(i=0;i<inst->n;i++) {
+        for(j=0;j<inst->n;j++) {
+            sum += inst->flow[(vecRPI[i]-1)*inst->n + (vecRPI[j]-1)] * inst->distance[i*inst->n + j];
+        }
+    }
+
+    std::cout << "Cost = " <<  sum << std::endl;
+
+    return sum;
+}
+
 int main(void)
 {
     // data that is created in host, then copied to a device version for use with the cost function.
@@ -124,13 +174,15 @@ int main(void)
         maxBounds[i] = 3.0;
     }
     
-    // Create the minimizer with a popsize of 192, 50 generations, Dimensions = 2, CR = 0.9, F = 2
-    DifferentialEvolution minimizer(32, 50, inst->n, 0.9, 0.5, minBounds, maxBounds);
+    // Create the minimizer with a popsize of 192, 100 generations, Dimensions = 2, CR = 0.9, F = 2
+    DifferentialEvolution minimizer(192, 250, inst->n, 0.9, 0.5, minBounds, maxBounds);
     
     
     // get the result from the minimizer
-    std::vector<float> result = minimizer.fmin(inst);
-    std::cout << "Result = " << result[0] << ", " << result[1] << std::endl;
+    float *result = minimizer.fmin(inst);
+
+    printResult(result, inst);
+
     std::cout << "Finished main function." << std::endl;
     return 1;
 }
