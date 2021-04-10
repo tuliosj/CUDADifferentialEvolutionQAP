@@ -131,6 +131,41 @@ __device__ float cost3D(const float *vec, const void *args)
 }
 
 
+__device__ int *relativePositionIndexing(float *vec, int n) {
+    int i, j, k=n, maxvalue;
+
+    int *vecRPI = (int*)malloc(sizeof(int)*n);
+
+    float *aux;
+    memcpy(&aux, vec, sizeof(float) * n);
+
+    for(i=0;i<n;i++) {
+        maxvalue = 0;
+        for(j=1;j<n;j++)
+            if(aux[j]>aux[maxvalue])
+                maxvalue = j;
+        vecRPI[maxvalue]=k--;
+        aux[maxvalue] = -1.0;
+    }
+
+    return vecRPI;
+}
+
+__device__ int costFunction(float *vec, const void *args) {
+    int i, j, sum=0;
+
+    const struct instance *inst = (struct instance*) args;
+
+    int *vecRPI = relativePositionIndexing(vec, inst->n);
+
+    for(i=0;i<inst->n;i++) {
+        for(j=0;j<inst->n;j++) {
+            sum += inst->flow[(vecRPI[i]-1)*inst->n + (vecRPI[j]-1)] * inst->distance[i*inst->n + j];
+        }
+    }
+
+    return sum;
+}
 
 
 // costFunc
@@ -301,6 +336,11 @@ void differentialEvolution(float *d_target,
                            float *h_output)
 {
     cudaError_t ret;
+    // "First of all, your thread block size should always be a multiple of 32, 
+    // because kernels issue instructions in warps (32 threads). 
+    // For example, if you have a block size of 50 threads, the GPU will still
+    // issue commands to 64 threads and you'd just be wasting them."
+    // https://stackoverflow.com/questions/4391162/cuda-determining-threads-per-block-blocks-per-grid
     int power32 = ceil(popSize / 32.0) * 32;
     //std::cout << "power32 = " << power32 << std::endl;
     
@@ -319,7 +359,7 @@ void differentialEvolution(float *d_target,
     gpuErrorCheck(cudaPeekAtLastError());
     //udaMemcpy(d_target2, d_target, sizeof(float) * dim * popSize, cudaMemcpyDeviceToDevice);
     
-    //std::cout << "Generayed random vector" << std::endl;
+    //std::cout << "Generated random vector" << std::endl;
     
     //printCudaVector(d_target, popSize*dim);
     //std::cout << "printing cost vector" << std::endl;
