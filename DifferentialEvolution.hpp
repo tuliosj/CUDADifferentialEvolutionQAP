@@ -96,14 +96,14 @@ class DifferentialEvolution {
 private:
     float *d_target1;
     float *d_target2;
-    float *d_cost;
+    int *d_cost;
     float *d_mutant;
     float *d_trial;
     
     
     float *d_min;
     float *d_max;
-    float *h_cost;
+    int *h_cost;
     
     void *d_randStates;
     

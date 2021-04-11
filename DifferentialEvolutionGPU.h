@@ -94,11 +94,11 @@ void gpuAssert(cudaError_t code, const char *file, int line);
 // @param h_output - the host output vector of function
 void differentialEvolution(float *d_target,
                            float *d_trial,
-                           float *d_cost,
+                           int *d_cost,
                            float *d_target2,
                            float *d_min,
                            float *d_max,
-                           float *h_cost,
+                           int *h_cost,
                            void *randStates,
                            int dim,
                            int popSize,

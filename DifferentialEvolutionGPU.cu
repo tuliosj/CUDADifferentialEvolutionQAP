@@ -117,6 +117,11 @@ __device__ int *relativePositionIndexing(const float *vec, int n) {
         }
         vecRPI[i]=biggerThanMe;
     }
+
+    // Remove dupes
+    for(i=0;i<n;i++) for(j=0;j<n;j++) if(i!=j&&vecRPI[j]==vecRPI[i]) vecRPI[j]--;
+    
+    free(aux);
     
     return vecRPI;
 }
@@ -132,9 +137,74 @@ __device__ int costFunc(const float *vec, const struct instance *inst) {
         }
     }
 
+    free(vecRPI);
+
     return sum;
 }
 
+
+__device__ void swap(float *vec, int i, int j) {
+    float aux = vec[i];
+    vec[i] = vec[j];
+    vec[j] = aux;
+}
+
+// https://www.intechopen.com/books/novel-trends-in-the-traveling-salesman-problem/cuda-accelerated-2-opt-local-search-for-the-traveling-salesman-problem
+__device__ int MLS2OPT(float *vec, const struct instance *inst) {
+    int i, j, cost_2, improvementFound = 0;
+
+    int cost = costFunc(vec, inst);
+
+    int *costs = (int*)malloc(sizeof(int)*inst->n);
+    for(i=0;i<inst->n;i++) {
+        costs[i] = cost;
+    }
+    
+    for(i=0;i<inst->n-1;i++) {
+        improvementFound = 0;
+        for(j=i+1;j<inst->n;j++) {
+            swap(vec,i,j);
+            cost_2 = costFunc(vec, inst);
+            if(cost_2 < cost) {
+                costs[j] = cost_2;
+                improvementFound = 1;
+            }
+            swap(vec,i,j);
+        }
+        if(improvementFound==1) {
+            cost_2 = cost;
+            for(j=i+1;j<inst->n;j++) {
+                if(costs[j] < cost_2) {
+                    cost_2 = costs[j];
+                    swap(vec,i,j);
+                }
+            }
+        }
+    }
+
+    free(costs);
+
+    return costFunc(vec, inst);
+}
+
+__device__ int LS2OPT(float *vec, const struct instance *inst) {
+    int i, j, cost_2;
+
+    int cost = costFunc(vec, inst);
+
+    for(i=0;i<inst->n-1;i++) {
+        for(j=i+1;j<inst->n;j++) {
+            swap(vec,i,j);
+            cost_2 = costFunc(vec, inst);
+            if(cost_2 < cost) {
+                return cost_2;
+            }
+            swap(vec,i,j);
+        }
+    }
+
+    return cost;
+}
 
 
 
@@ -155,7 +225,7 @@ void printCudaVector(const float *d_vec, int size)
 }
 
 __global__ void generateRandomVectorAndInit(float *d_x, float *d_min, float *d_max,
-            float *d_cost, const struct instance *inst, curandState_t *randStates,
+            int *d_cost, const struct instance *inst, curandState_t *randStates,
             int popSize, int dim, unsigned long seed)
 {
     int idx = (blockIdx.x * blockDim.x) + threadIdx.x;
@@ -187,7 +257,7 @@ __global__ void generateRandomVectorAndInit(float *d_x, float *d_min, float *d_m
 // @param inst - this a set of any arguments needed to be passed to the cost function. (must be in device memory already)
 __global__ void evolutionKernel(float *d_target,
                                 float *d_trial,
-                                float *d_cost,
+                                int *d_cost,
                                 float *d_target2,
                                 float *d_min,
                                 float *d_max,
@@ -201,7 +271,6 @@ __global__ void evolutionKernel(float *d_target,
     int idx = (blockIdx.x * blockDim.x) + threadIdx.x;
     if (idx >= popSize) return; // stop executing this block if
                                 // all populations have been used
-    // if (idx>=1) return;
     curandState_t *state = &randStates[idx];
     
     // TODO: Better way of generating unique random numbers?
@@ -227,20 +296,12 @@ __global__ void evolutionKernel(float *d_target,
         j = (j+1) % dim;
     } // end for loop through parameters
     
-    float score = costFunc(&d_trial[idx*dim], inst);
+    int score = LS2OPT(&d_trial[idx*dim], inst);
+
     if (score < d_cost[idx]) {
         // copy trial into new vector
-        float max_trial=d_trial[idx*dim],min_trial=d_trial[idx*dim];
-        for (j = 1; j < dim; j++) {
-            if(d_trial[idx*dim+j]>max_trial)
-                max_trial = d_trial[idx*dim+j];
-            if(d_trial[idx*dim+j]<min_trial)
-                min_trial = d_trial[idx*dim+j];
-        }
-        if(max_trial-min_trial==0.0)
-            max_trial+=0.01;
         for (j = 0; j < dim; j++) {
-            d_target2[(idx*dim) + j] = (d_max[j] - d_min[j])*(d_trial[(idx*dim) + j] -min_trial)/(max_trial-min_trial) + d_min[j];
+            d_target2[(idx*dim) + j] = d_trial[(idx*dim) + j];
             //printf("idx = %d, d_target2[%d] = %f, score = %f\n", idx, (idx*dim)+j, d_trial[(idx*dim) + j], score);
         }
         d_cost[idx] = score;
@@ -273,11 +334,11 @@ __global__ void evolutionKernel(float *d_target,
 // @param h_output - the host output vector of function
 void differentialEvolution(float *d_target,
                            float *d_trial,
-                           float *d_cost,
+                           int *d_cost,
                            float *d_target2,
                            float *d_min,
                            float *d_max,
-                           float *h_cost,
+                           int *h_cost,
                            void *randStates,
                            int dim,
                            int popSize,

@@ -29,6 +29,7 @@
 #include <iostream>
 #include <vector>
 #include <cuda_runtime.h>
+#include <chrono>
 
 instance *open_instance(const char *instance_name) {
     // Find and open the resource files
@@ -128,6 +129,9 @@ int *relativePositionIndexingCPU(const float *vec, int n) {
         }
         vecRPI[i]=biggerThanMe;
     }
+
+    // Remove dupes
+    for(i=0;i<n;i++) for(j=0;j<n;j++) if(i!=j&&vecRPI[j]==vecRPI[i]) vecRPI[j]--;
     
     return vecRPI;
 }
@@ -175,14 +179,16 @@ int main(void)
     }
     
     // Create the minimizer with a popsize of 192, 100 generations, Dimensions = 2, CR = 0.9, F = 2
-    DifferentialEvolution minimizer(192, 250, inst->n, 0.9, 0.5, minBounds, maxBounds);
+    DifferentialEvolution minimizer(92, 1500, inst->n, 0.9, 0.7, minBounds, maxBounds);
     
-    
+    std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
     // get the result from the minimizer
     float *result = minimizer.fmin(inst);
+    std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
 
     printResult(result, inst);
 
     std::cout << "Finished main function." << std::endl;
+    std::cout << "Time difference (sec) = " <<  (std::chrono::duration_cast<std::chrono::microseconds>(end - begin).count()) /1000000.0  <<std::endl;
     return 1;
 }
