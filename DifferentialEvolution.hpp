@@ -101,8 +101,8 @@ private:
     float *d_trial;
     
     
-    float *d_min;
-    float *d_max;
+    float d_min;
+    float d_max;
     int *h_cost;
     
     void *d_randStates;
@@ -113,6 +113,7 @@ private:
     int CR;
     int numGenerations;
     float F;
+    unsigned long long int *costCalls;
     
 public:
     
@@ -128,7 +129,7 @@ public:
     // @param func - the cost function to minimize.
     DifferentialEvolution(int PopulationSize, int NumGenerations, int Dimensions,
                 float crossoverConstant, float mutantConstant,
-                float *minBounds, float *maxBounds);
+                float minBounds, float maxBounds);
     
     // fmin
     // wrapper to the cuda function C function for differential evolution.
@@ -136,7 +137,7 @@ public:
     //      This MUST point to device memory or NULL.
     //
     // @return the best set of parameters
-    float *fmin(const struct instance *inst);
+    float *fmin(const struct instance *inst, unsigned long long int *costCalls);
     
 };
 

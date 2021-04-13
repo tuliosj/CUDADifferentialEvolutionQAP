@@ -126,8 +126,10 @@ __device__ int *relativePositionIndexing(const float *vec, int n) {
     return vecRPI;
 }
 
-__device__ int costFunc(const float *vec, const struct instance *inst) {
+__device__ int costFunc(const float *vec, const struct instance *inst, unsigned long long int *costCalls) {
     int i, j, sum=0;
+
+    atomicAdd(costCalls, 1);
 
     int *vecRPI = relativePositionIndexing(vec, inst->n);
 
@@ -150,10 +152,10 @@ __device__ void swap(float *vec, int i, int j) {
 }
 
 // https://www.intechopen.com/books/novel-trends-in-the-traveling-salesman-problem/cuda-accelerated-2-opt-local-search-for-the-traveling-salesman-problem
-__device__ int MLS2OPT(float *vec, const struct instance *inst) {
+__device__ int MLS2OPT(float *vec, const struct instance *inst, unsigned long long int *costCalls) {
     int i, j, cost_2, improvementFound = 0;
 
-    int cost = costFunc(vec, inst);
+    int cost = costFunc(vec, inst, costCalls);
 
     int *costs = (int*)malloc(sizeof(int)*inst->n);
     for(i=0;i<inst->n;i++) {
@@ -164,7 +166,7 @@ __device__ int MLS2OPT(float *vec, const struct instance *inst) {
         improvementFound = 0;
         for(j=i+1;j<inst->n;j++) {
             swap(vec,i,j);
-            cost_2 = costFunc(vec, inst);
+            cost_2 = costFunc(vec, inst, costCalls);
             if(cost_2 < cost) {
                 costs[j] = cost_2;
                 improvementFound = 1;
@@ -184,18 +186,18 @@ __device__ int MLS2OPT(float *vec, const struct instance *inst) {
 
     free(costs);
 
-    return costFunc(vec, inst);
+    return costFunc(vec, inst, costCalls);
 }
 
-__device__ int LS2OPT(float *vec, const struct instance *inst) {
+__device__ int LS2OPT(float *vec, const struct instance *inst, unsigned long long int *costCalls) {
     int i, j, cost_2;
 
-    int cost = costFunc(vec, inst);
+    int cost = costFunc(vec, inst, costCalls);
 
     for(i=0;i<inst->n-1;i++) {
         for(j=i+1;j<inst->n;j++) {
             swap(vec,i,j);
-            cost_2 = costFunc(vec, inst);
+            cost_2 = costFunc(vec, inst, costCalls);
             if(cost_2 < cost) {
                 return cost_2;
             }
@@ -224,9 +226,9 @@ void printCudaVector(const float *d_vec, int size)
     delete[] h_vec;
 }
 
-__global__ void generateRandomVectorAndInit(float *d_x, float *d_min, float *d_max,
+__global__ void generateRandomVectorAndInit(float *d_x, float d_min, float d_max,
             int *d_cost, const struct instance *inst, curandState_t *randStates,
-            int popSize, int dim, unsigned long seed)
+            int popSize, int dim, unsigned long seed,  unsigned long long int *costCalls)
 {
     int idx = (blockIdx.x * blockDim.x) + threadIdx.x;
     if (idx >= popSize) return;
@@ -235,10 +237,10 @@ __global__ void generateRandomVectorAndInit(float *d_x, float *d_min, float *d_m
     curandState_t *state = &randStates[idx];
     curand_init(seed, idx,0,state);
     for (int i = 0; i < dim; i++) {
-        d_x[(idx*dim) + i] = (curand_uniform(state) * (d_max[i] - d_min[i])) + d_min[i];
+        d_x[(idx*dim) + i] = (curand_uniform(state) * (d_max - d_min)) + d_min;
     }
 
-    d_cost[idx] = costFunc(&d_x[idx*dim], inst);
+    d_cost[idx] = costFunc(&d_x[idx*dim], inst, costCalls);
 }
 
 
@@ -259,14 +261,15 @@ __global__ void evolutionKernel(float *d_target,
                                 float *d_trial,
                                 int *d_cost,
                                 float *d_target2,
-                                float *d_min,
-                                float *d_max,
+                                float d_min,
+                                float d_max,
                                 curandState_t *randStates,
                                 int dim,
                                 int popSize,
                                 int CR, // Must be given as value between [0,999]
                                 float F,
-                                const struct instance *inst)
+                                const struct instance *inst,
+                                unsigned long long int *costCalls)
 {
     int idx = (blockIdx.x * blockDim.x) + threadIdx.x;
     if (idx >= popSize) return; // stop executing this block if
@@ -296,7 +299,7 @@ __global__ void evolutionKernel(float *d_target,
         j = (j+1) % dim;
     } // end for loop through parameters
     
-    int score = LS2OPT(&d_trial[idx*dim], inst);
+    int score = LS2OPT(&d_trial[idx*dim], inst, costCalls);
 
     if (score < d_cost[idx]) {
         // copy trial into new vector
@@ -336,8 +339,8 @@ void differentialEvolution(float *d_target,
                            float *d_trial,
                            int *d_cost,
                            float *d_target2,
-                           float *d_min,
-                           float *d_max,
+                           float d_min,
+                           float d_max,
                            int *h_cost,
                            void *randStates,
                            int dim,
@@ -346,7 +349,8 @@ void differentialEvolution(float *d_target,
                            int CR, // Must be given as value between [0,999]
                            float F,
                            const struct instance *inst,
-                           float *h_output)
+                           float *h_output,
+                           unsigned long long int *costCalls)
 {
     cudaError_t ret;
     // "First of all, your thread block size should always be a multiple of 32, 
@@ -356,7 +360,6 @@ void differentialEvolution(float *d_target,
     // https://stackoverflow.com/questions/4391162/cuda-determining-threads-per-block-blocks-per-grid
     int power32 = ceil(popSize / 32.0) * 32;
     // std::cout << "power32 = " << power32 << std::endl;
-    
     
     // int i, j;
 
@@ -378,7 +381,7 @@ void differentialEvolution(float *d_target,
     
     // generate random vector
     generateRandomVectorAndInit<<<1, power32>>>(d_target, d_min, d_max, d_cost,
-                    inst, (curandState_t *)randStates, popSize, dim, clock());
+                    inst, (curandState_t *)randStates, popSize, dim, clock(), costCalls);
     gpuErrorCheck(cudaPeekAtLastError());
     //udaMemcpy(d_target2, d_target, sizeof(float) * dim * popSize, cudaMemcpyDeviceToDevice);
     
@@ -400,8 +403,9 @@ void differentialEvolution(float *d_target,
         
         // start kernel for this generation
         evolutionKernel<<<1, power32>>>(d_target, d_trial, d_cost, d_target2, d_min, d_max,
-                (curandState_t *)randStates, dim, popSize, CR, F, inst);
+                (curandState_t *)randStates, dim, popSize, CR, F, inst, costCalls);
         gpuErrorCheck(cudaPeekAtLastError());
+
         
         // swap buffers, places newest data into d_target.
         float *tmp = d_target;

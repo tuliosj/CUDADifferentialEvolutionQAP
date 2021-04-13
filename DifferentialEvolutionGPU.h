@@ -96,8 +96,8 @@ void differentialEvolution(float *d_target,
                            float *d_trial,
                            int *d_cost,
                            float *d_target2,
-                           float *d_min,
-                           float *d_max,
+                           float d_min,
+                           float d_max,
                            int *h_cost,
                            void *randStates,
                            int dim,
@@ -106,7 +106,8 @@ void differentialEvolution(float *d_target,
                            int CR, // Must be given as value between [0,999]
                            float F,
                            const struct instance *inst,
-                           float *h_output);
+                           float *h_output,
+                           unsigned long long int *costCalls);
 
 // createRandNumGen
 // Inits the array of random number generators required by differentialEvolution

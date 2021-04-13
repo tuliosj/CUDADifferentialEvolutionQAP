@@ -77,13 +77,15 @@
 // @param func - the cost function to minimize.
 DifferentialEvolution::DifferentialEvolution(int PopulationSize, int NumGenerations,
         int Dimensions, float crossoverConstant, float mutantConstant,
-        float *minBounds, float *maxBounds)
+        float minBounds, float maxBounds)
 {
     popSize = PopulationSize;
     dim = Dimensions;
     numGenerations = NumGenerations;
     CR = crossoverConstant*1000;
     F = mutantConstant;
+    d_min = minBounds;
+    d_max = maxBounds;
     cudaError_t ret;
     
     ret = cudaMalloc(&d_target1, sizeof(float) * popSize * dim);
@@ -98,15 +100,6 @@ DifferentialEvolution::DifferentialEvolution(int PopulationSize, int NumGenerati
     ret = cudaMalloc(&d_cost, sizeof(int) * PopulationSize);
     gpuErrorCheck(ret);
     
-    ret = cudaMalloc(&d_min, sizeof(float) * dim);
-    gpuErrorCheck(ret);
-    ret = cudaMalloc(&d_max, sizeof(float) * dim);
-    gpuErrorCheck(ret);
-    ret = cudaMemcpy(d_min, minBounds, sizeof(float) * dim, cudaMemcpyHostToDevice);
-    gpuErrorCheck(ret);
-    ret = cudaMemcpy(d_max, maxBounds, sizeof(float) * dim, cudaMemcpyHostToDevice);
-    gpuErrorCheck(ret);
-    
     h_cost = new int[popSize * dim];
     d_randStates = createRandNumGen(popSize);
 }
@@ -117,14 +110,14 @@ DifferentialEvolution::DifferentialEvolution(int PopulationSize, int NumGenerati
 //      This MUST point to device memory or NULL.
 //
 // @return the best set of parameters
-float *DifferentialEvolution::fmin(const struct instance *inst)
+float *DifferentialEvolution::fmin(const struct instance *inst, unsigned long long int *costCalls)
 {
     float *result;
     cudaMallocManaged(&result, sizeof(float)*dim);
     
     differentialEvolution(d_target1, d_trial, d_cost, d_target2, d_min,
             d_max, h_cost, d_randStates, dim, popSize, numGenerations, CR, F, inst,
-            result);
+            result, costCalls);
     
     return result;
 }

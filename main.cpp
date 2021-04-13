@@ -27,86 +27,81 @@
 #include "DifferentialEvolution.hpp"
 #include <string.h>
 #include <iostream>
+#include <string>
+#include <fstream>
+#include <sstream>
+#include <charconv>
 #include <vector>
 #include <cuda_runtime.h>
 #include <chrono>
+#include <iomanip>
 
-instance *open_instance(const char *instance_name) {
-    // Find and open the resource files
-	FILE *data, *soln;
-	char data_path[BUFFER_LENGTH], soln_path[BUFFER_LENGTH];
-    sprintf(data_path, "./res/qapdata/%s.dat", instance_name);
-    sprintf(soln_path, "./res/qapsoln/%s.sln", instance_name);
 
-    if ((data = fopen(data_path, "r")) == NULL)
-    {
-        std::cout << "Data file not found." << std::endl;
-        exit(1);
-    };
-    if ((soln = fopen(soln_path, "r")) == NULL)
-    {
-        std::cout << "Solution file not found." << std::endl;
-        exit(1);
-    };
-
+struct instance *open_instance(const std::string instance_name) {
     // Instance
-    instance *inst;
+    struct instance *inst;
     cudaMallocManaged(&inst, sizeof(instance));
 
-    // Find instance's size
-    char buffer[BUFFER_LENGTH];
-    fgets(buffer, BUFFER_LENGTH, data);
-    inst->n = atoi(strtok(buffer, "\n"));
+    std::string splitStr;
+    int number;
+    unsigned long long int count = -1;
+    std::ifstream data("./res/qapdata/" + instance_name + ".dat");
+    if (data.is_open()) {
+        while(std::getline(data,splitStr,' ')) {
+            if (splitStr[0]!='\0') { 
+                std::from_chars(splitStr.data(), splitStr.data()+splitStr.size(), number);
+                if(count==-1) {
+                    inst->n = number;
+                    inst->distance;
+                    cudaMallocManaged(&inst->distance, sizeof(int)*inst->n*inst->n);
+                    inst->flow;
+                    cudaMallocManaged(&inst->flow, sizeof(int)*inst->n*inst->n);
+                    inst->best_individual;
+                    cudaMallocManaged(&inst->best_individual, sizeof(int)*inst->n);
+                } else if(count < inst->n*inst->n) {
+                    inst->distance[count] = number;
+                } else if(count < 2*inst->n*inst->n) {
+                    inst->flow[count - inst->n*inst->n] = number;
+                } else {
+                    std::cout << "File read" << std::endl;
+                    break;
+                }
+                count++;
+            }
 
-    // // Memory allocation
-	inst->distance;
-    cudaMallocManaged(&inst->distance, sizeof(int)*inst->n*inst->n);
-	inst->flow;
-    cudaMallocManaged(&inst->flow, sizeof(int)*inst->n*inst->n);
-    inst->best_individual;
-    cudaMallocManaged(&inst->best_individual, sizeof(int)*inst->n);
-
-    // // Read the distance matrix
-	char *token;
-	int i,j;
-    fgets(buffer, BUFFER_LENGTH, data);
-
-    for (i=0;i<inst->n && fgets(buffer, BUFFER_LENGTH, data);i++) {
-        token = strtok(buffer, " ");
-        for (j=0;j<inst->n && token != NULL;j++) {
-            token[strcspn(token, "\n")] = 0;
-            inst->distance[i*inst->n + j] = atoi(token);
-            token = strtok(NULL, " ");
         }
+        data.close();
+    } else {
+        std::cout << "Unable to open file";
+        exit(1);
     }
 
-    // Read the flow matrix
-    fgets(buffer, BUFFER_LENGTH, data);
+    std::ifstream sln("./res/qapsoln/" + instance_name + ".sln");
+    if (sln.is_open()) {
+        count = -2;
+        while(std::getline(sln,splitStr,' ')) {
+            if (splitStr[0]!='\0') { 
+                std::from_chars(splitStr.data(), splitStr.data()+splitStr.size(), number);
+                if(count==-2) {
+                } else if(count == -1) {
+                    inst->best_result= number;
+                } else if(count < inst->n) {
+                    inst->best_individual[count] = number;
+                } else {
+                    std::cout << "File read" << std::endl;
+                    break;
+                }
+                count++;
+            }
 
-    for (i=0;i<inst->n && fgets(buffer, BUFFER_LENGTH, data);i++) {
-        token = strtok(buffer, " ");
-        for (j=0;j<inst->n  && token != NULL;j++) {
-            token[strcspn(token, "\n")] = 0;
-            inst->flow[i*inst->n + j] = atoi(token);
-            token = strtok(NULL, " ");
         }
+        sln.close();
+    } else {
+        std::cout << "Unable to open file";
+        exit(1);
     }
-
-    // Read the solution file
-    fgets(buffer, BUFFER_LENGTH, soln);
     
-    strtok(buffer, " ");
-    inst->best_result = atoi(strtok(NULL, "\n"));
-
-    fgets(buffer, BUFFER_LENGTH, soln);
-    token = strtok(buffer, " ");
-    for (i=0;i<inst->n && token != NULL;i++) {
-        token[strcspn(token, "\n")] = 0;
-        inst->best_individual[i] = atoi(token);
-        token = strtok(NULL, " ");
-    }
-
-	return inst;
+    return inst;
 }
 
 
@@ -136,59 +131,100 @@ int *relativePositionIndexingCPU(const float *vec, int n) {
     return vecRPI;
 }
 
-int printResult(const float *vec, const struct instance *inst) {
+
+int writeDown(const float *vec, const struct instance *inst, std::string instName, std::ofstream& results, double elapsed, unsigned long long int *costCalls, int popSize, int generations, float f, float cr, std::time_t executingSince) {
     int i, j, sum=0;
 
-    std::cout << "Result (before RPI) = ";
-    for(i=0;i<inst->n-1;i++)
-        std::cout << vec[i] << ", ";
-    std::cout << vec[i] << std::endl;
 
     int *vecRPI = relativePositionIndexingCPU(vec, inst->n);
-
-    std::cout << "Result (after RPI) = ";
-    for(i=0;i<inst->n-1;i++)
-        std::cout << vecRPI[i] << ", ";
-    std::cout << vecRPI[i] << std::endl;
 
     for(i=0;i<inst->n;i++) {
         for(j=0;j<inst->n;j++) {
             sum += inst->flow[(vecRPI[i]-1)*inst->n + (vecRPI[j]-1)] * inst->distance[i*inst->n + j];
         }
     }
+    
+    std::cout << "Writing on file -  Inst: " << instName << "\t Gap: " << 100.0*(sum-inst->best_result)/inst->best_result << "\t Time: " << elapsed << std::endl;
+    std::cout << "[";
+    for(i=0;i<inst->n-1;i++)
+        std::cout << vec[i] << ", ";
+    std::cout << vec[i] << "]" << std::endl;
 
-    std::cout << "Cost = " <<  sum << std::endl;
+    // instance
+    results << instName << "\t";
+    // gap
+    results << 100.0*(sum-inst->best_result)/inst->best_result << "\t";
+    // costCalls
+    results << costCalls[0] << "\t";
+    // best
+    results << sum << "\t";
+    // time
+    results << elapsed << "\t";
+    // popSize
+    results << popSize << "\t";
+    // generations
+    results << generations << "\t";
+    // f
+    results << f << "\t";
+    // cr
+    results << cr << "\t";
 
+    // result
+    results << "[";
+    for(i=0;i<inst->n-1;i++)
+        results << vecRPI[i] << ", ";
+    results << vecRPI[i] << "]\t";
+
+    // datetime
+    std::stringstream ss;
+    ss << std::put_time(localtime(&executingSince), "%F %H:%M:%S");
+    results << ss.str();
+
+    results << "\n";
+    
     return sum;
 }
 
 int main(void)
 {
-    // data that is created in host, then copied to a device version for use with the cost function.
-    const struct instance *inst = open_instance("chr12a");
+    // std::string str;
+    // std::cin >> str;
+    // // data that is created in host, then copied to a device version for use with the cost function.
+    // const struct instance *inst = open_instance(str);
 
+    // Create .tsv file
+    std::time_t now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+    std::stringstream ss;
+    ss << std::put_time(localtime(&now), "[%F]-[%H:%M:%S]");
+    std::ofstream results("./res/results/gpu" + ss.str() + ".tsv");
+    results << "instance\tgap\tcostcall\tbest\ttime\tpopsize\tgenerations\tf\tcr\tresult\tdatetime\n";
 
+    // Test parameters
+    std::string str[] = {"els19"};
+    int i, popSize = 320, generations = 500;
+    float cr = 0.9, f = 0.7;
 
-    // create the min and max bounds for the search space.
-    int i;
-    float minBounds[inst->n];
-    float maxBounds[inst->n];
-    for(i=0;i<inst->n;i++) {
-        minBounds[i] = -3.0;
-        maxBounds[i] = 3.0;
+    unsigned long long int *costCalls;
+    cudaMallocManaged(&costCalls, sizeof(unsigned long long int));
+    
+    for(int j=0;j<3;j++) {
+        for(int k=0;k<1;k++) {
+            const struct instance *inst = open_instance(str[k]);
+
+            // Create the minimizer with bounds of -3.0 and 3.0
+            DifferentialEvolution minimizer(popSize, generations, inst->n, cr, f, -3.0, 3.0);
+            
+            *costCalls = 0;
+            std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
+            // get the result from the minimizer
+            float *result = minimizer.fmin(inst, costCalls);
+            std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
+
+            writeDown(result, inst, str[k], results, std::chrono::duration_cast<std::chrono::microseconds>(end - begin).count()/1000000.0, costCalls, popSize, generations, f, cr, now);
+        }
     }
-    
-    // Create the minimizer with a popsize of 192, 100 generations, Dimensions = 2, CR = 0.9, F = 2
-    DifferentialEvolution minimizer(92, 1500, inst->n, 0.9, 0.7, minBounds, maxBounds);
-    
-    std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
-    // get the result from the minimizer
-    float *result = minimizer.fmin(inst);
-    std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
 
-    printResult(result, inst);
+    results.close();
 
-    std::cout << "Finished main function." << std::endl;
-    std::cout << "Time difference (sec) = " <<  (std::chrono::duration_cast<std::chrono::microseconds>(end - begin).count()) /1000000.0  <<std::endl;
     return 1;
 }
