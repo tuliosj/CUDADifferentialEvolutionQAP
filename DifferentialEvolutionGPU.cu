@@ -144,6 +144,9 @@ __device__ int costFunc(const float *vec, const struct instance *inst, unsigned 
     return sum;
 }
 
+__device__ void copy(float *a, float *b, int n) {
+    for(int i=0;i<n;i++) b[i]=a[i];
+}
 
 __device__ void swap(float *vec, int i, int j) {
     float aux = vec[i];
@@ -151,45 +154,69 @@ __device__ void swap(float *vec, int i, int j) {
     vec[j] = aux;
 }
 
-// https://www.intechopen.com/books/novel-trends-in-the-traveling-salesman-problem/cuda-accelerated-2-opt-local-search-for-the-traveling-salesman-problem
-__device__ int MLS2OPT(float *vec, const struct instance *inst, unsigned long long int *costCalls) {
-    int i, j, cost_2, improvementFound = 0;
-
-    int cost = costFunc(vec, inst, costCalls);
-
-    int *costs = (int*)malloc(sizeof(int)*inst->n);
-    for(i=0;i<inst->n;i++) {
-        costs[i] = cost;
+__device__ void swapInsertAfter(float *vec, int i, int j) {
+    int aux = vec[i];
+    for(int k=i+1;k<=j;k++) {
+        vec[k-1] = vec[k];
+        if(k==j)
+            vec[k] = aux;
     }
-    
-    for(i=0;i<inst->n-1;i++) {
-        improvementFound = 0;
-        for(j=i+1;j<inst->n;j++) {
-            swap(vec,i,j);
-            cost_2 = costFunc(vec, inst, costCalls);
-            if(cost_2 < cost) {
-                costs[j] = cost_2;
-                improvementFound = 1;
-            }
-            swap(vec,i,j);
-        }
-        if(improvementFound==1) {
-            cost_2 = cost;
-            for(j=i+1;j<inst->n;j++) {
-                if(costs[j] < cost_2) {
-                    cost_2 = costs[j];
-                    swap(vec,i,j);
-                }
-            }
-        }
-    }
-
-    free(costs);
-
-    return costFunc(vec, inst, costCalls);
 }
 
-__device__ int LS2OPT(float *vec, const struct instance *inst, unsigned long long int *costCalls) {
+__device__ void swapInsertAfterReverse(float *vec, int i, int j) {
+    int aux = vec[j];
+
+    for(int k=j-1;k>=i;k--) {
+        vec[k+1] = vec[k];
+        if(k==i)
+            vec[k] = aux;
+    }
+}
+
+__device__ void swap2opt(float *vec, int i, int j) {
+    int a=i,b=j,c=(j-i+1)/2;
+    for(int k=0;k<c;k++)
+        swap(vec,a++,b--);
+}
+// https://www.intechopen.com/books/novel-trends-in-the-traveling-salesman-problem/cuda-accelerated-2-opt-local-search-for-the-traveling-salesman-problem
+// __device__ int bestLocalSearch(float *vec, const struct instance *inst, unsigned long long int *costCalls) {
+//     int i, j, cost_2, improvementFound = 0;
+
+//     int cost = costFunc(vec, inst, costCalls);
+
+//     int *costs = (int*)malloc(sizeof(int)*inst->n);
+//     for(i=0;i<inst->n;i++) {
+//         costs[i] = cost;
+//     }
+    
+//     for(i=0;i<inst->n-1;i++) {
+//         improvementFound = 0;
+//         for(j=i+1;j<inst->n;j++) {
+//             swap(vec,i,j);
+//             cost_2 = costFunc(vec, inst, costCalls);
+//             if(cost_2 < cost) {
+//                 costs[j] = cost_2;
+//                 improvementFound = 1;
+//             }
+//             swap(vec,i,j);
+//         }
+//         if(improvementFound==1) {
+//             cost_2 = cost;
+//             for(j=i+1;j<inst->n;j++) {
+//                 if(costs[j] < cost_2) {
+//                     cost_2 = costs[j];
+//                     swap(vec,i,j);
+//                 }
+//             }
+//         }
+//     }
+
+//     free(costs);
+
+//     return costFunc(vec, inst, costCalls);
+// }
+
+__device__ int localSearch(float *vec, const struct instance *inst, unsigned long long int *costCalls) {
     int i, j, cost_2;
 
     int cost = costFunc(vec, inst, costCalls);
@@ -299,7 +326,7 @@ __global__ void evolutionKernel(float *d_target,
         j = (j+1) % dim;
     } // end for loop through parameters
     
-    int score = LS2OPT(&d_trial[idx*dim], inst, costCalls);
+    int score = costFunc(&d_trial[idx*dim], inst, costCalls);
 
     if (score < d_cost[idx]) {
         // copy trial into new vector

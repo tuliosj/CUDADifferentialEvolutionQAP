@@ -201,13 +201,13 @@ int main(void)
 
     // Test parameters
     std::string str[] = {"els19"};
-    int i, popSize = 320, generations = 500;
+    int i, popSize = 320, generations = 100;
     float cr = 0.9, f = 0.7;
 
     unsigned long long int *costCalls;
     cudaMallocManaged(&costCalls, sizeof(unsigned long long int));
     
-    for(int j=0;j<3;j++) {
+    for(int j=0;j<10;j++) {
         for(int k=0;k<1;k++) {
             const struct instance *inst = open_instance(str[k]);
 
