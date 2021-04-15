@@ -17,11 +17,6 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
-//
-//  testMain.cpp
-//
-// This is a test code to show an example usage of Differential Evolution
-
 #include <stdio.h>
 
 #include "DifferentialEvolution.hpp"
@@ -156,8 +151,6 @@ int writeDown(const float *vec, const struct instance *inst, std::string instNam
     results << 100.0*(sum-inst->best_result)/inst->best_result << "\t";
     // costCalls
     results << costCalls[0] << "\t";
-    // best
-    results << sum << "\t";
     // time
     results << elapsed << "\t";
     // popSize
@@ -174,11 +167,15 @@ int writeDown(const float *vec, const struct instance *inst, std::string instNam
     for(i=0;i<inst->n-1;i++)
         results << vecRPI[i] << ", ";
     results << vecRPI[i] << "]\t";
+    // best
+    results << sum << "\t";
 
     // datetime
     std::stringstream ss;
     ss << std::put_time(localtime(&executingSince), "%F %H:%M:%S");
-    results << ss.str();
+    results << ss.str() << "\t";
+    // device
+    results << "gpu" << "\t";
 
     results << "\n";
     
@@ -197,7 +194,7 @@ int main(void)
     std::stringstream ss;
     ss << std::put_time(localtime(&now), "[%F]-[%H:%M:%S]");
     std::ofstream results("./res/results/gpu" + ss.str() + ".tsv");
-    results << "instance\tgap\tcostcall\tbest\ttime\tpopsize\tgenerations\tf\tcr\tresult\tdatetime\n";
+    results << "instance\tgap\tcostcall\ttime\tpopsize\tgenerations\tf\tcr\tresult\tbest\tdatetime\tdevice\n";
 
     // Test parameters
     std::string str[] = {"els19"};
