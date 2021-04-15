@@ -69,8 +69,7 @@
 
 #include <stdio.h>
 #include <vector>
-#include <cuda_runtime.h>
-#include "DifferentialEvolutionGPU.h"
+#include "DifferentialEvolutionGPU.hpp"
 
 ///// IMPORTANT ////////
 // This is a convienent place to put any structs that could be used to send
@@ -105,15 +104,12 @@ private:
     float d_max;
     int *h_cost;
     
-    void *d_randStates;
-    
     int popSize;
     int dim;
     
     int CR;
     int numGenerations;
     float F;
-    unsigned long long int *costCalls;
     
 public:
     
@@ -137,7 +133,7 @@ public:
     //      This MUST point to device memory or NULL.
     //
     // @return the best set of parameters
-    float *fmin(const struct instance *inst, unsigned long long int *costCalls);
+    float *fmin(const struct instance *inst, std::atomic<long int> *costCalls);
     
 };
 

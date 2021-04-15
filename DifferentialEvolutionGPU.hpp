@@ -17,7 +17,7 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
-// DifferentialEvolutionGPU.h
+// DifferentialEvolutionGPU.hpp
 // This file holds the header to GPU kernel functions required to run differential evolution.
 // The software in this files is based on the paper:
 // Differential Evolution - A Simple and Efficient Heuristic for Global Optimization over Continous Spaces,
@@ -38,7 +38,7 @@
 // likly to give performance gains.
 //
 // HOW TO USE:
-// To implement a new cost function write the cost function in DifferentialEvolutionGPU.cu with the header
+// To implement a new cost function write the cost function in DifferentialEvolutionGPU.cpp with the header
 // __device float fooCost(const float *vec, const void *inst)
 // @param vec - sample parameters for the cost function to give a score on.
 // @param inst - any set of arguements that can be passed at the minimization stage
@@ -57,7 +57,6 @@
 //
 
 #include "DifferentialEvolution.hpp"
-#include <cuda_runtime.h>
 
 #ifndef __DIFFERENTIAL_EVOLUTION_GPU__
 #define __DIFFERENTIAL_EVOLUTION_GPU__
@@ -71,10 +70,8 @@
 
 #define COST_SELECTOR COST_QAP
 
-// A basic macro used to checking cuda errors.
-// @param ans - the most recent enumerated cuda error to check.
-#define gpuErrorCheck(ans) { gpuAssert((ans), __FILE__, __LINE__); }
-void gpuAssert(cudaError_t code, const char *file, int line);
+#include <atomic>
+
 
 // This function handles the entire differentialEvolution, and calls the needed kernel functions.
 // @param d_target - a device array with the current agents parameters (requires array with size popSize*dim)
@@ -99,7 +96,6 @@ void differentialEvolution(float *d_target,
                            float d_min,
                            float d_max,
                            int *h_cost,
-                           void *randStates,
                            int dim,
                            int popSize,
                            int maxGenerations,
@@ -107,7 +103,7 @@ void differentialEvolution(float *d_target,
                            float F,
                            const struct instance *inst,
                            float *h_output,
-                           unsigned long long int *costCalls);
+                           std::atomic<long int> *costCalls);
 
 // createRandNumGen
 // Inits the array of random number generators required by differentialEvolution

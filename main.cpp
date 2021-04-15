@@ -25,6 +25,7 @@
 #include <stdio.h>
 
 #include "DifferentialEvolution.hpp"
+#include "DifferentialEvolutionGPU.hpp"
 #include <string.h>
 #include <iostream>
 #include <string>
@@ -32,19 +33,18 @@
 #include <sstream>
 #include <charconv>
 #include <vector>
-#include <cuda_runtime.h>
 #include <chrono>
 #include <iomanip>
 
+std::atomic<long int> costCalls(0);
 
 struct instance *open_instance(const std::string instance_name) {
     // Instance
-    struct instance *inst;
-    cudaMallocManaged(&inst, sizeof(instance));
+    struct instance *inst = (struct instance*) malloc(sizeof(struct instance));
 
     std::string splitStr;
     int number;
-    unsigned long long int count = -1;
+    long int count = -1;
     std::ifstream data("./res/qapdata/" + instance_name + ".dat");
     if (data.is_open()) {
         while(std::getline(data,splitStr,' ')) {
@@ -52,12 +52,9 @@ struct instance *open_instance(const std::string instance_name) {
                 std::from_chars(splitStr.data(), splitStr.data()+splitStr.size(), number);
                 if(count==-1) {
                     inst->n = number;
-                    inst->distance;
-                    cudaMallocManaged(&inst->distance, sizeof(int)*inst->n*inst->n);
-                    inst->flow;
-                    cudaMallocManaged(&inst->flow, sizeof(int)*inst->n*inst->n);
-                    inst->best_individual;
-                    cudaMallocManaged(&inst->best_individual, sizeof(int)*inst->n);
+                    inst->distance = (int *)malloc(sizeof(int)*inst->n*inst->n);
+                    inst->flow = (int *)malloc(sizeof(int)*inst->n*inst->n);
+                    inst->best_individual = (int *)malloc(sizeof(int)*inst->n);
                 } else if(count < inst->n*inst->n) {
                     inst->distance[count] = number;
                 } else if(count < 2*inst->n*inst->n) {
@@ -132,7 +129,7 @@ int *relativePositionIndexingCPU(const float *vec, int n) {
 }
 
 
-int writeDown(const float *vec, const struct instance *inst, std::string instName, std::ofstream& results, double elapsed, unsigned long long int *costCalls, int popSize, int generations, float f, float cr, std::time_t executingSince) {
+int writeDown(const float *vec, const struct instance *inst, std::string instName, std::ofstream& results, double elapsed, int popSize, int generations, float f, float cr, std::time_t executingSince) {
     int i, j, sum=0;
 
 
@@ -155,7 +152,7 @@ int writeDown(const float *vec, const struct instance *inst, std::string instNam
     // gap
     results << 100.0*(sum-inst->best_result)/inst->best_result << "\t";
     // costCalls
-    results << costCalls[0] << "\t";
+    results << costCalls.load() << "\t";
     // best
     results << sum << "\t";
     // time
@@ -196,16 +193,13 @@ int main(void)
     std::time_t now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
     std::stringstream ss;
     ss << std::put_time(localtime(&now), "[%F]-[%H:%M:%S]");
-    std::ofstream results("./res/results/gpu" + ss.str() + ".tsv");
+    std::ofstream results("./res/results/cpu" + ss.str() + ".tsv");
     results << "instance\tgap\tcostcall\tbest\ttime\tpopsize\tgenerations\tf\tcr\tresult\tdatetime\n";
 
     // Test parameters
     std::string str[] = {"els19"};
     int i, popSize = 320, generations = 100;
     float cr = 0.9, f = 0.7;
-
-    unsigned long long int *costCalls;
-    cudaMallocManaged(&costCalls, sizeof(unsigned long long int));
     
     for(int j=0;j<10;j++) {
         for(int k=0;k<1;k++) {
@@ -214,13 +208,13 @@ int main(void)
             // Create the minimizer with bounds of -3.0 and 3.0
             DifferentialEvolution minimizer(popSize, generations, inst->n, cr, f, -3.0, 3.0);
             
-            *costCalls = 0;
+            costCalls = 0;
             std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
             // get the result from the minimizer
-            float *result = minimizer.fmin(inst, costCalls);
+            float *result = minimizer.fmin(inst, &costCalls);
             std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
 
-            writeDown(result, inst, str[k], results, std::chrono::duration_cast<std::chrono::microseconds>(end - begin).count()/1000000.0, costCalls, popSize, generations, f, cr, now);
+            writeDown(result, inst, str[k], results, std::chrono::duration_cast<std::chrono::microseconds>(end - begin).count()/1000000.0, popSize, generations, f, cr, now);
         }
     }
 

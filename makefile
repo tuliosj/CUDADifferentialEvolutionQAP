@@ -1,8 +1,8 @@
 test:
-	nvcc -o output main.cpp DifferentialEvolution.cpp DifferentialEvolutionGPU.cu
+	g++ -pthread -o output main.cpp DifferentialEvolution.cpp DifferentialEvolutionGPU.cpp
 
 main:
-	nvcc -o output main.cpp DifferentialEvolution.cpp  DifferentialEvolutionGPU.cu -Xptxas -O3,-v 
+	g++ -pthread -o output main.cpp DifferentialEvolution.cpp  DifferentialEvolutionGPU.cpp
 
 clean:
 	

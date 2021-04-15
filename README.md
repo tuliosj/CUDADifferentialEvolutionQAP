@@ -24,7 +24,7 @@ not give significant if any performance gains. However large population sizes ar
 likly to give performance gains.
 
 HOW TO USE:
-To implement a new cost function write the cost function in DifferentialEvolutionGPU.cu with the header
+To implement a new cost function write the cost function in DifferentialEvolutionGPU.cpp with the header
 
 __device float fooCost(const float *vec, const void *args)
 

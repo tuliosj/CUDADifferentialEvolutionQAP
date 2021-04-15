@@ -17,7 +17,7 @@
 * DEALINGS IN THE SOFTWARE.
 */
 
-// DifferentialEvolutionGPU.cu
+// DifferentialEvolutionGPU.cpp
 // This file holds the GPU kernel functions required to run differential evolution.
 // The software in this files is based on the paper:
 // Differential Evolution - A Simple and Efficient Heuristic for Global Optimization over Continous Spaces,
@@ -38,7 +38,7 @@
 // likly to give performance gains.
 //
 // HOW TO USE:
-// To implement a new cost function write the cost function in DifferentialEvolutionGPU.cu with the header
+// To implement a new cost function write the cost function in DifferentialEvolutionGPU.cpp with the header
 // __device float fooCost(const float *vec, const void *inst)
 // @param vec - sample parameters for the cost function to give a score on.
 // @param inst - any set of arguements that can be passed at the minimization stage
@@ -57,33 +57,20 @@
 //
 
 
-#include <curand_kernel.h>
-
-
-#include <cuda_runtime.h>
 // for random numbers in a kernel
-#include "DifferentialEvolutionGPU.h"
+#include "DifferentialEvolutionGPU.hpp"
 
 // for FLT_MAX
 #include <cfloat>
+#include <cstring>
 
 #include <iostream>
+#include <thread>
+#include <random>
 
 // for clock()
 #include <ctime>
 #include <cmath>
-
-// basic function for exiting code on CUDA errors.
-// Does no special error handling, just exits the program if it finds any errors and gives an error message.
-inline void gpuAssert(cudaError_t code, const char *file, int line)
-{
-    if (code != cudaSuccess)
-    {
-        fprintf(stderr, "GPUassert: %s %s %d\n", cudaGetErrorString(code), file, line);
-        exit(code);
-    }
-}
-
 
 // -----------------IMPORTANT----------------
 // costFunc - this function must implement whatever cost function
@@ -98,7 +85,7 @@ inline void gpuAssert(cudaError_t code, const char *file, int line)
 // @param vec - the vector to be evaulated.
 // @param inst - a set of user arguments.
 
-__device__ int *relativePositionIndexing(const float *vec, int n) {
+int *relativePositionIndexing(const float *vec, int n) {
     int i, j, biggerThanMe;
 
     int *vecRPI = (int*)malloc(sizeof(int)*n);
@@ -126,10 +113,10 @@ __device__ int *relativePositionIndexing(const float *vec, int n) {
     return vecRPI;
 }
 
-__device__ int costFunc(const float *vec, const struct instance *inst, unsigned long long int *costCalls) {
+int costFunc(const float *vec, const struct instance *inst, std::atomic<long int> *costCalls) {
     int i, j, sum=0;
 
-    atomicAdd(costCalls, 1);
+    costCalls[0]++;
 
     int *vecRPI = relativePositionIndexing(vec, inst->n);
 
@@ -144,17 +131,17 @@ __device__ int costFunc(const float *vec, const struct instance *inst, unsigned 
     return sum;
 }
 
-__device__ void copy(float *a, float *b, int n) {
+void copy(float *a, float *b, int n) {
     for(int i=0;i<n;i++) b[i]=a[i];
 }
 
-__device__ void swap(float *vec, int i, int j) {
+void swap(float *vec, int i, int j) {
     float aux = vec[i];
     vec[i] = vec[j];
     vec[j] = aux;
 }
 
-__device__ void swapInsertAfter(float *vec, int i, int j) {
+void swapInsertAfter(float *vec, int i, int j) {
     int aux = vec[i];
     for(int k=i+1;k<=j;k++) {
         vec[k-1] = vec[k];
@@ -163,7 +150,7 @@ __device__ void swapInsertAfter(float *vec, int i, int j) {
     }
 }
 
-__device__ void swapInsertAfterReverse(float *vec, int i, int j) {
+void swapInsertAfterReverse(float *vec, int i, int j) {
     int aux = vec[j];
 
     for(int k=j-1;k>=i;k--) {
@@ -173,50 +160,13 @@ __device__ void swapInsertAfterReverse(float *vec, int i, int j) {
     }
 }
 
-__device__ void swap2opt(float *vec, int i, int j) {
+void swap2opt(float *vec, int i, int j) {
     int a=i,b=j,c=(j-i+1)/2;
     for(int k=0;k<c;k++)
         swap(vec,a++,b--);
 }
-// https://www.intechopen.com/books/novel-trends-in-the-traveling-salesman-problem/cuda-accelerated-2-opt-local-search-for-the-traveling-salesman-problem
-// __device__ int bestLocalSearch(float *vec, const struct instance *inst, unsigned long long int *costCalls) {
-//     int i, j, cost_2, improvementFound = 0;
 
-//     int cost = costFunc(vec, inst, costCalls);
-
-//     int *costs = (int*)malloc(sizeof(int)*inst->n);
-//     for(i=0;i<inst->n;i++) {
-//         costs[i] = cost;
-//     }
-    
-//     for(i=0;i<inst->n-1;i++) {
-//         improvementFound = 0;
-//         for(j=i+1;j<inst->n;j++) {
-//             swap(vec,i,j);
-//             cost_2 = costFunc(vec, inst, costCalls);
-//             if(cost_2 < cost) {
-//                 costs[j] = cost_2;
-//                 improvementFound = 1;
-//             }
-//             swap(vec,i,j);
-//         }
-//         if(improvementFound==1) {
-//             cost_2 = cost;
-//             for(j=i+1;j<inst->n;j++) {
-//                 if(costs[j] < cost_2) {
-//                     cost_2 = costs[j];
-//                     swap(vec,i,j);
-//                 }
-//             }
-//         }
-//     }
-
-//     free(costs);
-
-//     return costFunc(vec, inst, costCalls);
-// }
-
-__device__ int localSearch(float *vec, const struct instance *inst, unsigned long long int *costCalls) {
+int localSearch(float *vec, const struct instance *inst, std::atomic<long int> *costCalls) {
     int i, j, cost_2;
 
     int cost = costFunc(vec, inst, costCalls);
@@ -241,7 +191,6 @@ void printCudaVector(const float *d_vec, int size)
 {
     std::cout << "\nsize: " << size << std::endl;
     float *h_vec = new float[size];
-    gpuErrorCheck(cudaMemcpy(h_vec, d_vec, sizeof(float) * size, cudaMemcpyDeviceToHost));
     
     int i;
     std::cout << "{";
@@ -253,18 +202,15 @@ void printCudaVector(const float *d_vec, int size)
     delete[] h_vec;
 }
 
-__global__ void generateRandomVectorAndInit(float *d_x, float d_min, float d_max,
-            int *d_cost, const struct instance *inst, curandState_t *randStates,
-            int popSize, int dim, unsigned long seed,  unsigned long long int *costCalls)
+void generateRandomVectorAndInit(float *d_x, float d_min, float d_max,
+            int *d_cost, const struct instance *inst,
+            int popSize, int dim, int idx, std::atomic<long int> *costCalls)
 {
-    int idx = (blockIdx.x * blockDim.x) + threadIdx.x;
-    if (idx >= popSize) return;
-    // if (idx >= 1) return;
-    
-    curandState_t *state = &randStates[idx];
-    curand_init(seed, idx,0,state);
+    std::random_device dev;
+    std::mt19937 rng(dev());
     for (int i = 0; i < dim; i++) {
-        d_x[(idx*dim) + i] = (curand_uniform(state) * (d_max - d_min)) + d_min;
+        std::uniform_real_distribution<> dist(0.0,1.0);
+        d_x[(idx*dim) + i] = (dist(rng) * (d_max - d_min)) + d_min;
     }
 
     d_cost[idx] = costFunc(&d_x[idx*dim], inst, costCalls);
@@ -284,25 +230,22 @@ __global__ void generateRandomVectorAndInit(float *d_x, float d_min, float d_max
 // @param CR - Crossover Constant used by DE (see DE paper for more info)
 // @param F - the scaling factor used by DE (see DE paper for more info)
 // @param inst - this a set of any arguments needed to be passed to the cost function. (must be in device memory already)
-__global__ void evolutionKernel(float *d_target,
+void evolutionKernel(float *d_target,
                                 float *d_trial,
                                 int *d_cost,
                                 float *d_target2,
                                 float d_min,
                                 float d_max,
-                                curandState_t *randStates,
                                 int dim,
                                 int popSize,
                                 int CR, // Must be given as value between [0,999]
                                 float F,
                                 const struct instance *inst,
-                                unsigned long long int *costCalls)
-{
-    int idx = (blockIdx.x * blockDim.x) + threadIdx.x;
-    if (idx >= popSize) return; // stop executing this block if
-                                // all populations have been used
-    curandState_t *state = &randStates[idx];
-    
+                                int idx,
+                                std::atomic<long int> *costCalls)
+{    
+    std::random_device dev;
+    std::mt19937 rng(dev());
     // TODO: Better way of generating unique random numbers?
     int a;
     int b;
@@ -310,14 +253,18 @@ __global__ void evolutionKernel(float *d_target,
     int j;
     //////////////////// Random index mutation generation //////////////////
     // select a different random number then index
-    do { a = curand(state) % popSize; } while (a == idx);
-    do { b = curand(state) % popSize; } while (b == idx || b == a);
-    do { c = curand(state) % popSize; } while (c == idx || c == a || c == b);
-    j = curand(state) % dim;
+    std::uniform_int_distribution<std::mt19937::result_type> distPop(0,popSize-1);
+    std::uniform_int_distribution<std::mt19937::result_type> distDim(0,dim-1);
+    std::uniform_int_distribution<std::mt19937::result_type> distThousand(0,999);
+
+    do { a = distPop(rng); } while (a == idx);
+    do { b = distPop(rng); } while (b == idx || b == a);
+    do { c = distPop(rng); } while (c == idx || c == a || c == b);
+    j = distDim(rng);
     
     ///////////////////// MUTATION ////////////////
     for (int k = 1; k <= dim; k++) {
-        if ((curand(state) % 1000) < CR || k==dim) {
+        if (distThousand(rng) < CR || k==dim) {
             // trial vector param comes from vector plus weighted differential
             d_trial[(idx*dim)+j] = d_target[(a*dim)+j] + (F * (d_target[(b*dim)+j] - d_target[(c*dim)+j]));
         } else {
@@ -369,7 +316,6 @@ void differentialEvolution(float *d_target,
                            float d_min,
                            float d_max,
                            int *h_cost,
-                           void *randStates,
                            int dim,
                            int popSize,
                            int maxGenerations,
@@ -377,18 +323,9 @@ void differentialEvolution(float *d_target,
                            float F,
                            const struct instance *inst,
                            float *h_output,
-                           unsigned long long int *costCalls)
+                           std::atomic<long int> *costCalls)
 {
-    cudaError_t ret;
-    // "First of all, your thread block size should always be a multiple of 32, 
-    // because kernels issue instructions in warps (32 threads). 
-    // For example, if you have a block size of 50 threads, the GPU will still
-    // issue commands to 64 threads and you'd just be wasting them."
-    // https://stackoverflow.com/questions/4391162/cuda-determining-threads-per-block-blocks-per-grid
-    int power32 = ceil(popSize / 32.0) * 32;
-    // std::cout << "power32 = " << power32 << std::endl;
-    
-    // int i, j;
+    int i, j;
 
     // for(i=0;i<inst->n;i++) {
     //     for(j=0;j<inst->n;j++) {
@@ -396,20 +333,16 @@ void differentialEvolution(float *d_target,
     //     }
     //     printf("\n");
     // }
-
-    // std::cout << "min bounds = ";
-    // printCudaVector(d_min, dim);
-    // std::cout << "max bounds = ";
-    // printCudaVector(d_max, dim);
-    
-    //std::cout << "Random vector" << std::endl;
-    //printCudaVector(d_target, popSize*dim);
-    //std::cout << "About to create random vecto" << std::endl;
     
     // generate random vector
-    generateRandomVectorAndInit<<<1, power32>>>(d_target, d_min, d_max, d_cost,
-                    inst, (curandState_t *)randStates, popSize, dim, clock(), costCalls);
-    gpuErrorCheck(cudaPeekAtLastError());
+    std::thread threadList[popSize];
+    for(i=0;i<popSize;i++) {
+        threadList[i] = std::thread(generateRandomVectorAndInit, d_target, d_min, d_max, d_cost, inst, popSize, dim, i, costCalls);
+    }
+    for(i=0;i<popSize;i++) {
+        threadList[i].join();
+    }
+
     //udaMemcpy(d_target2, d_target, sizeof(float) * dim * popSize, cudaMemcpyDeviceToDevice);
     
     // ret = cudaDeviceSynchronize();
@@ -421,7 +354,7 @@ void differentialEvolution(float *d_target,
     // std::cout << "printing cost vector" << std::endl;
     // printCudaVector(d_cost, popSize);
     
-    for (int i = 1; i <= maxGenerations; i++) {
+    for (j = 1; j <= maxGenerations; j++) {
         //std::cout << i << ": generation = \n";
         //printCudaVector(d_target, popSize * dim);
         //std::cout << "cost = ";
@@ -429,10 +362,12 @@ void differentialEvolution(float *d_target,
         //std::cout << std::endl;
         
         // start kernel for this generation
-        evolutionKernel<<<1, power32>>>(d_target, d_trial, d_cost, d_target2, d_min, d_max,
-                (curandState_t *)randStates, dim, popSize, CR, F, inst, costCalls);
-        gpuErrorCheck(cudaPeekAtLastError());
-
+        for(i=0;i<popSize;i++) {
+            threadList[i] = std::thread(evolutionKernel, d_target, d_trial, d_cost, d_target2, d_min, d_max, dim, popSize, CR, F, inst, i, costCalls);
+        }
+        for(i=0;i<popSize;i++) {
+            threadList[i].join();
+        }
         
         // swap buffers, places newest data into d_target.
         float *tmp = d_target;
@@ -440,16 +375,13 @@ void differentialEvolution(float *d_target,
         d_target2 = tmp;
     } // end for (generations)
     
-    ret = cudaDeviceSynchronize();
-    gpuErrorCheck(ret);
-    ret = cudaMemcpy(h_cost, d_cost, popSize * sizeof(float), cudaMemcpyDeviceToHost);
-    gpuErrorCheck(ret);
+    memcpy(h_cost, d_cost, popSize * sizeof(float));
     //std::cout << "h_cost = {";
     
     // find min of last evolutions
     int bestIdx = -1;
     float bestCost = FLT_MAX;
-    for (int i = 0; i < popSize; i++) {
+    for(i = 0; i < popSize; i++) {
         float curCost = h_cost[i];
         //std::cout << curCost << ", ";
         if (curCost <= bestCost) {
@@ -465,23 +397,5 @@ void differentialEvolution(float *d_target,
     //std::cout << "Best cost = " << bestCost << " bestIdx = " << bestIdx << std::endl;
     
     // output best minimization.
-    ret = cudaMemcpy(h_output, d_target+(bestIdx*dim), sizeof(float)*dim, cudaMemcpyDeviceToHost);
-    gpuErrorCheck(ret);
+    memcpy(h_output, d_target+(bestIdx*dim), sizeof(float)*dim);
 }
-
-// allocate the memory needed for random number generators.
-void *createRandNumGen(int size)
-{
-    void *x;
-    gpuErrorCheck(cudaMalloc(&x, sizeof(curandState_t)*size));
-    return x;
-}
-
-
-
-
-
-
-
-
-

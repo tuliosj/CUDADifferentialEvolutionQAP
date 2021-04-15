@@ -63,7 +63,10 @@
 //
 
 #include "DifferentialEvolution.hpp"
-#include "DifferentialEvolutionGPU.h"
+
+#include "DifferentialEvolutionGPU.hpp"
+
+#include <stdlib.h>
 
 // Constructor for DifferentialEvolution
 //
@@ -86,22 +89,14 @@ DifferentialEvolution::DifferentialEvolution(int PopulationSize, int NumGenerati
     F = mutantConstant;
     d_min = minBounds;
     d_max = maxBounds;
-    cudaError_t ret;
     
-    ret = cudaMalloc(&d_target1, sizeof(float) * popSize * dim);
-    gpuErrorCheck(ret);
-    ret = cudaMalloc(&d_target2, sizeof(float) * popSize * dim);
-    gpuErrorCheck(ret);
-    ret = cudaMalloc(&d_mutant, sizeof(float) * popSize * dim);
-    gpuErrorCheck(ret);
-    ret = cudaMalloc(&d_trial, sizeof(float) * popSize * dim);
-    gpuErrorCheck(ret);
-    
-    ret = cudaMalloc(&d_cost, sizeof(int) * PopulationSize);
-    gpuErrorCheck(ret);
+    d_target1 = (float*)malloc(sizeof(float) * popSize * dim);
+    d_target2 = (float*)malloc(sizeof(float) * popSize * dim);
+    d_mutant = (float*)malloc(sizeof(float) * popSize * dim);
+    d_trial = (float*)malloc(sizeof(float) * popSize * dim);
+    d_cost = (int*)malloc(sizeof(int) * PopulationSize);
     
     h_cost = new int[popSize * dim];
-    d_randStates = createRandNumGen(popSize);
 }
 
 // fmin
@@ -110,13 +105,12 @@ DifferentialEvolution::DifferentialEvolution(int PopulationSize, int NumGenerati
 //      This MUST point to device memory or NULL.
 //
 // @return the best set of parameters
-float *DifferentialEvolution::fmin(const struct instance *inst, unsigned long long int *costCalls)
+float *DifferentialEvolution::fmin(const struct instance *inst, std::atomic<long int> *costCalls)
 {
-    float *result;
-    cudaMallocManaged(&result, sizeof(float)*dim);
+    float *result = (float*)malloc(sizeof(float)*dim);
     
     differentialEvolution(d_target1, d_trial, d_cost, d_target2, d_min,
-            d_max, h_cost, d_randStates, dim, popSize, numGenerations, CR, F, inst,
+            d_max, h_cost, dim, popSize, numGenerations, CR, F, inst,
             result, costCalls);
     
     return result;
